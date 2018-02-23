@@ -112,7 +112,7 @@ class Capture:
 
         frame = self.reader.frame
         if frame is None:
-            return piece
+            return None, None
 
         edges = cv2.Canny(frame, 100, 200)
         edges = cv2.dilate(edges, None, iterations=1)
@@ -180,13 +180,13 @@ class Capture:
                 color = Color.BLUE
             piece = Piece(color, length, width, area, hue, sat, val, center)
 
-        return piece
+        return piece, frame
 
     def read(self):
         try:
             return self.read_internal()
         except:
-            return None
+            return None, None
 
     def close(self):
         self.reader.stop = True
@@ -260,8 +260,8 @@ class SeeSaw:
     def __init__(self, gpio=19):
         self.side = None
         self.pwm_duty = 500000
-        self.freq = 400
-        self.sleep = 2
+        self.freq = 800
+        self.sleep = 1
         self.gpio_dir = 26
         self.gpio = gpio
         self.pi = pigpio.pi()
@@ -302,7 +302,7 @@ class SeeSaw:
 
     @staticmethod
     def __command_stamp(seconds):
-        return int((time.time() + seconds) / 2) * 2
+        return int(round(time.time() + seconds))
 
     def left(self):
         if self.side == SeeSaw.LEFT:
@@ -330,6 +330,14 @@ class SeeSaw:
             self.pi.stop()
 
 
+class Listener:
+
+    def __init__(self):
+        pass
+
+    def on_piece_detected(self, piece, image):
+        pass
+
 class Sorter:
 
     def __init__(self):
@@ -338,10 +346,14 @@ class Sorter:
         self.beltSpeed = 600
         self.beltLength = 400
         self.predicate = Sorter.__false
+        self.listener = Listener()
         self.thread = None
 
     def set_predicate(self, predicate):
         self.predicate = predicate
+
+    def set_listener(self, listener):
+        self.listener = listener
 
     @staticmethod
     def __false(piece):
@@ -372,7 +384,7 @@ class Sorter:
                     if not self.running:
                         break
 
-                piece = cap.read()
+                piece, frame = cap.read()
                 if piece is None:
                     match = 0
                     previous = None
@@ -395,6 +407,7 @@ class Sorter:
                                   + ' @ v=' + str(int(v))
                                   + ' (' + str(currentPos) + '),'
                                   + ' dropOffIn=' + str(round(t, 1)))
+                            self.listener.on_piece_detected(piece, frame)
                             if self.predicate(piece):
                                 s.match_in(t)
                             else:
@@ -411,6 +424,6 @@ class Sorter:
                         if v is not None:
                             # calculate when it will drop off the belt
                             t = (self.beltLength - currentPos) / v
-                            s.non_match_in(t)
+                            # s.non_match_in(t)
 
                 time.sleep(.2)
