@@ -30,6 +30,7 @@ class ImageWriter(lego.Listener):
         name = str(int(round(time.time() * 1000))) + '.png'
         cv2.imwrite(path + '/' + name, image)
 
+
 s = lego.Sorter()
 try:
     s.set_predicate(predicate)

@@ -38,8 +38,9 @@ class Reader:
 
 class Piece:
 
-    def __init__(self, color, length, width, area, hue, sat, val, center):
+    def __init__(self, color, dim, length, width, area, hue, sat, val, center):
         self.color = color
+        self.dim = dim
         self.length = length
         self.width = width
         self.area = area
@@ -68,6 +69,7 @@ class Piece:
     def __str__(self):
         return (self.color
                 + ', ' + str(self.length) + 'x' + str(self.width)
+                + ' (' + str(round(self.dim[0], 1)) + '/' + str(round(self.dim[1], 1)) + ')'
                 + ', p=' + str(self.center[1])
                 + ', h=' + str(self.hue)
                 + ', s=' + str(self.sat)
@@ -108,48 +110,48 @@ class Capture:
         self.close()
 
     def read_internal(self):
-        piece = None
-
         frame = self.reader.frame
         if frame is None:
-            return None, None
+            return [], None
 
         edges = cv2.Canny(frame, 100, 200)
         edges = cv2.dilate(edges, None, iterations=1)
         edges = cv2.erode(edges, None, iterations=1)
         ret, thresh = cv2.threshold(edges, 127, 255, cv2.THRESH_BINARY)
-        mask, contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-        angle = 0
-        length = 0
-        width = 0
-        center = None
+        mask, contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
         for x in range(0, len(contours)):
             cv2.fillConvexPoly(mask, contours[x], 255)
 
-        if len(contours) > 0:
-            contours = np.concatenate(contours)
-        if len(contours) > 5:
-            # TODO: replace with cv2.minAreaRect()?
-            ellipse = cv2.fitEllipse(contours)
-            center = ellipse[0]
-            rect = ellipse[1]
-            angle = ellipse[2]
-            width = int(round(rect[0] / 11.0))
-            length = int(round(rect[1] / 11.0))
+        # run a second round on filled contours
+        mask, contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
 
-        dst = mask
-        if angle != 0:
-            M = cv2.getRotationMatrix2D((self.cols / 2, self.rows / 2), angle + 90, 1)
-            dst = cv2.warpAffine(mask, M, (self.cols, self.rows))
+        pieces = []
+        for c in contours:
+            p = self.__identify_piece(c, mask, frame)
+            if p is not None:
+                pieces.append(p)
 
-        self.img[:self.shape[0], :self.shape[1]] = frame
+        return pieces, frame
+
+    @staticmethod
+    def __identify_piece(contour, mask, frame):
+        # center (x,y), (width, height), angle of rotation
+        rect = cv2.minAreaRect(contour)
+        center = rect[0]
+        dim = rect[1]
+        width = int(round(dim[0] / 9.5))
+        length = int(round(dim[1] / 9.5))
+        if width > length:
+            width, length = length, width
+
         b = frame[:, :, 0]
         g = frame[:, :, 1]
         r = frame[:, :, 2]
-        self.img[:self.shape[0], -self.shape[1]:, 0] = mask
-        self.img[-self.shape[0]:, -self.shape[1]:, 1] = edges
-        self.img[-self.shape[0]:, :self.shape[1], 2] = dst
 
+        mask.fill(0)
+        cv2.fillConvexPoly(mask, contour, 255)
+
+        piece = None
         # calculate average colour of masked frame
         if np.sum(mask) != 0:
             avgB = np.average(b, axis=None, weights=mask)
@@ -159,8 +161,6 @@ class Capture:
             hue = round(hsv[0] * 360, 1)
             sat = round(hsv[1] * 100, 1)
             val = round(hsv[2] * 100, 1)
-            hsvStr = ', '.join(map(str, [hue, sat, val]))
-            # print([hue, sat, val])
             area = np.count_nonzero(mask)
             color = ''
             if sat < 30:
@@ -178,15 +178,15 @@ class Capture:
                 color = Color.GREEN
             elif 180. <= hue < 300:
                 color = Color.BLUE
-            piece = Piece(color, length, width, area, hue, sat, val, center)
+            piece = Piece(color, dim, length, width, area, hue, sat, val, center)
 
-        return piece, frame
+        return piece
 
     def read(self):
         try:
             return self.read_internal()
         except:
-            return None, None
+            return [], None
 
     def close(self):
         self.reader.stop = True
@@ -384,7 +384,11 @@ class Sorter:
                     if not self.running:
                         break
 
-                piece, frame = cap.read()
+                pieces, frame = cap.read()
+                piece = None
+                if len(pieces) > 0:
+                    piece = pieces[0]
+
                 if piece is None:
                     match = 0
                     previous = None
