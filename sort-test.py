@@ -17,10 +17,6 @@ import cv2
 import os
 
 
-def predicate(piece):
-    return piece.color == lego.Color.RED
-
-
 class ImageWriter(lego.Listener):
 
     def on_piece_detected(self, piece, image):
@@ -33,10 +29,13 @@ class ImageWriter(lego.Listener):
 
 s = lego.Sorter()
 try:
-    s.set_predicate(predicate)
+    p = lego.FilePredicate('/home/pi/legogram/command.log')
+    s.set_predicate(p.predicate)
     s.set_listener(ImageWriter())
     s.start()
     # let it run for ten minutes
     time.sleep(600)
+except KeyboardInterrupt:
+    pass
 finally:
     s.stop()

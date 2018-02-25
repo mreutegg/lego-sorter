@@ -19,6 +19,7 @@ import pigpio
 import time
 import heapq
 import Queue
+from sh import tail
 
 
 class Reader:
@@ -338,6 +339,7 @@ class Listener:
     def on_piece_detected(self, piece, image):
         pass
 
+
 class Sorter:
 
     def __init__(self):
@@ -431,3 +433,46 @@ class Sorter:
                             # s.non_match_in(t)
 
                 time.sleep(.2)
+
+
+class FilePredicate:
+
+    def __init__(self, path):
+        self.path = path
+        self.colors = set()
+        t = threading.Thread(None, self)
+        t.setDaemon(True)
+        t.start()
+
+    def __call__(self, *args, **kwargs):
+        try:
+            self.__read()
+        except Exception as e:
+            print "Reading from command file failed: ", e
+
+    def __read(self):
+        for line in tail("-f", "-n", "0", self.path, _iter=True):
+            print('command: ' + line)
+            self.colors.clear()
+            for c in line[len('lego-sorter:'):].strip().split():
+                if c == Color.BLACK or c.startswith('schwarz'):
+                    self.colors.add(Color.BLACK)
+                elif c == Color.BLUE or c.startswith('blau'):
+                    self.colors.add(Color.BLUE)
+                elif c == Color.GRAY or c.startswith('grau'):
+                    self.colors.add(Color.GRAY)
+                elif c == Color.GREEN or c.startswith('gr'):
+                    self.colors.add(Color.GREEN)
+                elif c == Color.ORANGE or c.startswith('oran'):
+                    self.colors.add(Color.ORANGE)
+                elif c == Color.RED or c.startswith('rot'):
+                    self.colors.add(Color.RED)
+                elif c == Color.YELLOW or c.startswith('gelb'):
+                    self.colors.add(Color.YELLOW)
+            color_str = 'nothing'
+            if len(self.colors) > 0:
+                color_str = str(self.colors)
+            print('Now sorting :' + color_str)
+
+    def predicate(self, piece):
+        return piece.color in self.colors
